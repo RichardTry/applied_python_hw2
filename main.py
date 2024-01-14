@@ -173,8 +173,12 @@ async def callbacks_back(callback: types.CallbackQuery):
 
 ### Помощь
 
-def print_help():
-    pass
+async def print_help(message):
+    await message.answer("Справка по боту:\n\
+/help - эта справка\n\
+/predict - начать выбирать признаки\n\
+/rate - оценить бота\n\
+/statistic - статистика по оценкам")
 
 ### Команды
 
@@ -186,7 +190,7 @@ async def cmd_start(message: types.Message):
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    await message.answer("Справка по боту: <надо дописать>")
+    await print_help(message)
 
 @dp.message(Command("predict"))
 async def cmd_predict(message: types.Message):
@@ -201,7 +205,7 @@ async def plant_text(message: types.Message):
     state = get_user_state(message.from_user.id)
     print(f'state = {state}')
     if state == JUST_STARTED:
-        print_help()
+        await print_help(message)
     elif state == GENERAL_FEATURE_SELECTION:
         message.answer('Выбери признак в таблице выше!')
     elif state == 'waiting_for_age':

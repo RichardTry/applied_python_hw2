@@ -18,6 +18,8 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters.command import Command
+from model import open_data, split_data, load_model, predict, preprocess_data
+import pandas as pd
 from config import TOKEN
 
 # Включаем логирование, чтобы не пропустить важные сообщения
@@ -35,23 +37,26 @@ WAITING_GENDER = 3
 
 users_states = dict()
 
+model = load_model()
+train_X_df, _ = split_data(open_data())
+
 features_map = {
-    'age': 'Возраст',
-    'gender': 'Пол',
-    'education': 'Образование',
-    'maritalStatus': 'Семейное положение'
+    'AGE': 'Возраст',
+    'GENDER': 'Пол',
+    'EDUCATION': 'Образование',
+    'MARITAL_STATUS': 'Семейное положение'
 }
 
 feature_values = {
-    'age': None,
-    'gender': ['Мужской', 'Женский'],
-    'education': ['Среднее специальное',
+    'AGE': None,
+    'GENDER': ['Мужской', 'Женский'],
+    'EDUCATION': ['Среднее специальное',
                   'Среднее', 'Высшее',
                   'Неоконченное высшее',
                   'Неполное среднее',
                   'Два и более высших образования',
                   'Ученая степень'],
-    'maritalStatus': ['Не состоял в браке',
+    'MARITAL_STATUS': ['Не состоял в браке',
                        'Гражданский брак',
                        'Состою в браке',
                        'Разведен(а)',
@@ -101,7 +106,7 @@ def gen_features_keyboard(user_id):
         row = []
         for c in range(ROW_SIZE):
             index = r+c
-            row.append(types.InlineKeyboardButton(text=gen_feature_string(user_id, features[index]), callback_data=f'select_{features[index]}'))
+            row.append(types.InlineKeyboardButton(text=gen_feature_string(user_id, features[index]), callback_data=f'select__{features[index]}'))
         buttons.append(row)
     all_filled = True
     for f in users_states[user_id]['features']:
@@ -115,7 +120,7 @@ def gen_features_keyboard(user_id):
 def gen_select_keyboard(feature):
     buttons = []
     for index, val in enumerate(feature_values[feature]):
-        buttons.append([types.InlineKeyboardButton(text=val, callback_data=f"selected_{feature}_{index}")])
+        buttons.append([types.InlineKeyboardButton(text=val, callback_data=f"selected__{feature}__{index}")])
     buttons.append([types.InlineKeyboardButton(text="↩️ Назад", callback_data="back")])
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     return keyboard
@@ -125,24 +130,25 @@ async def show_features_keyboard(user_id, message):
 
 ### Коллбеки
 
-@dp.callback_query(F.data.startswith("select_"))
+@dp.callback_query(F.data.startswith("select__"))
 async def callbacks_select(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    feature = callback.data[7:]
+    feature = callback.data[8:]
     logging.info(f'User selected {feature}')
     if feature_values[feature] is not None: # Если категориальная фича
         logging.info('Cat feature')
         await callback.message.edit_reply_markup(reply_markup=gen_select_keyboard(feature))
     else:
         logging.info('Numeric feature')
-        await callback.answer(f'Введите значение признака {feature.lower()}')
-        set_user_state(user_id, f'waiting_for_{feature}')
+        await callback.message.answer(f'Введите значение признака {features_map[feature]}')
+        set_user_state(user_id, f'WAITING_FOR_{feature}')
+    await callback.answer()
 
-@dp.callback_query(F.data.startswith("selected_"))
+@dp.callback_query(F.data.startswith("selected__"))
 async def callbacks_selected(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    feature = callback.data.split("_")[1]
-    value = feature_values[feature][int(callback.data.split("_")[2])]
+    feature = callback.data.split("__")[1]
+    value = feature_values[feature][int(callback.data.split("__")[2])]
     logging.info(f'User selected {value} in {feature}')
     users_states[user_id]['features'][feature] = value
     await callback.answer(f'Значение {value} выбрано!')
@@ -156,19 +162,29 @@ async def callbacks_back(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "predict")
 async def callbacks_back(callback: types.CallbackQuery):
-    user_input_df = users_states[user_id]['features']
+    user_id = callback.from_user.id
+    user_input_df = pd.DataFrame(users_states[user_id]['features'], index=[0])
 
-    train_df = open_data()
-    train_X_df, _ = split_data(train_df)
-    write_user_data(train_X_df)
     full_X_df = pd.concat((user_input_df, train_X_df), axis=0)
-    preprocessed_X_df = preprocess_data(full_X_df, test=False)
+    preprocessed_X_df = preprocess_data(full_X_df, target=False)
 
     user_X_df = preprocessed_X_df[:1]
-    write_user_data(user_X_df)
 
-    prediction, prediction_probas = load_model_and_predict(user_X_df)
-    write_prediction(prediction, prediction_probas)
+    prediction, prediction_probas = predict(model, user_X_df)
+    await callback.message.answer(f'{prediction}\n{prediction_probas}')
+    await callback.answer()
+
+    # train_df = open_data()
+    # train_X_df, _ = split_data(train_df)
+    # write_user_data(train_X_df)
+    # full_X_df = pd.concat((user_input_df, train_X_df), axis=0)
+    # preprocessed_X_df = preprocess_data(full_X_df, test=False)
+
+    # user_X_df = preprocessed_X_df[:1]
+    # write_user_data(user_X_df)
+
+    # prediction, prediction_probas = load_model_and_predict(user_X_df)
+    # write_prediction(prediction, prediction_probas)
 
 ### Помощь
 
@@ -207,12 +223,12 @@ async def plant_text(message: types.Message):
         await print_help(message)
     elif state == GENERAL_FEATURE_SELECTION:
         message.answer('Выбери признак в таблице выше!')
-    elif state == 'waiting_for_age':
+    elif state == 'WAITING_FOR_AGE':
         if not message.text.isdigit():
-            message.reply('Введён некорректный возраст.\nПопробуйте заново.')
+            await message.reply('Введён некорректный возраст.\nПопробуйте заново.')
         else:
             logging.info('age entered!')
-            users_states[user_id]['features']['age'] = int(message.text)
+            users_states[user_id]['features']['AGE'] = int(message.text)
             await message.answer('Возраст введён!')
             await message.answer("Выберите признак, чтобы заполнить остальные:",
                      reply_markup=gen_features_keyboard(user_id))

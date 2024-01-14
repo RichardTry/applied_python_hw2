@@ -51,13 +51,16 @@ def join_data(data):
 def open_data():
     return join_data(load_data())
 
-def preprocess_data(df: pd.DataFrame, test=True):
+def preprocess_data(df: pd.DataFrame, target=False):
     df.dropna(inplace=True)
 
-    if test:
+    if target:
         X_df, y_df = split_data(df)
     else:
         X_df = df
+    
+    features_whitelist = ['AGE', 'GENDER', 'MARITAL_STATUS', 'EDUCATION']
+    X_df = X_df.loc[:, features_whitelist]
 
     to_encode = ['EDUCATION', 'MARITAL_STATUS', 'GENDER']
     for col in to_encode:
@@ -65,7 +68,7 @@ def preprocess_data(df: pd.DataFrame, test=True):
         X_df = pd.concat([X_df, dummy], axis=1)
         X_df.drop(col, axis=1, inplace=True)
 
-    if test:
+    if target:
         return X_df, y_df
     else:
         return X_df
@@ -91,37 +94,36 @@ def fit_and_save_model(X_df, y_df, path="data/model_weights.mw"):
     print(f"Model was saved to {path}")
 
 
-def load_model_and_predict(df, path="data/model_weights.mw"):
+def load_model(path="data/model_weights.mw"):
     with open(path, "rb") as file:
-        model = load(file)
+        return load(file)
 
+
+def predict(model, df):
     prediction = model.predict(df)[0]
     # prediction = np.squeeze(prediction)
 
     prediction_proba = model.predict_proba(df)[0]
     # prediction_proba = np.squeeze(prediction_proba)
 
-    encode_prediction_proba = {
-        0: "Вам не понравится наше предложение с вероятностью",
-        1: "Вам понравится наше предложение с вероятностью"
-    }
+    # encode_prediction_proba = {
+    #     0: "Вам не понравится наше предложение с вероятностью",
+    #     1: "Вам понравится наше предложение с вероятностью"
+    # }
 
     encode_prediction = {
-        0: "Боимся, нам не будет интересно наше предложение :(",
-        1: "Кажется, Вам понравится наше предложение!"
+        0: "Боимся, Вам не будет интересно наше предложение 😔",
+        1: "Кажется, Вам понравится наше предложение! 😊"
     }
 
-    prediction_data = {}
-    for key, value in encode_prediction_proba.items():
-        prediction_data.update({value: prediction_proba[key]})
+    # prediction_data = {}
+    # for key, value in encode_prediction_proba.items():
+    #     prediction_data.update({value: prediction_proba[key]})
 
-    prediction_df = pd.DataFrame(prediction_data, index=[0])
-    prediction = encode_prediction[prediction]
-
-    return prediction, prediction_df
+    return encode_prediction[prediction], f'Уверены в этом с вероятностью в {int(prediction_proba[prediction] * 100)}%'
 
 
 if __name__ == "__main__":
     df = open_data()
-    X_df, y_df = preprocess_data(df)
+    X_df, y_df = preprocess_data(df, target=True)
     fit_and_save_model(X_df, y_df)

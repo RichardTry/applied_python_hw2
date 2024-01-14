@@ -67,7 +67,7 @@ def init_user(user_id):
                              'features': {f: None for f in features}}
 
 def set_user_state(user_id, state):
-    print(f'Setting {state} for {user_id}')
+    logging.info(f'Setting {state} for {user_id}')
     if user_id in users_states:
         users_states[user_id]['state'] = state
     else:
@@ -115,7 +115,6 @@ def gen_features_keyboard(user_id):
 def gen_select_keyboard(feature):
     buttons = []
     for index, val in enumerate(feature_values[feature]):
-        print(f'{val} ===== {feature}')
         buttons.append([types.InlineKeyboardButton(text=val, callback_data=f"selected_{feature}_{index}")])
     buttons.append([types.InlineKeyboardButton(text="↩️ Назад", callback_data="back")])
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -130,12 +129,12 @@ async def show_features_keyboard(user_id, message):
 async def callbacks_select(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     feature = callback.data[7:]
-    print(f'User selected {feature}')
+    logging.info(f'User selected {feature}')
     if feature_values[feature] is not None: # Если категориальная фича
-        print('Cat feature')
+        logging.info('Cat feature')
         await callback.message.edit_reply_markup(reply_markup=gen_select_keyboard(feature))
     else:
-        print('Numeric feature')
+        logging.info('Numeric feature')
         await callback.answer(f'Введите значение признака {feature.lower()}')
         set_user_state(user_id, f'waiting_for_{feature}')
 
@@ -144,7 +143,7 @@ async def callbacks_selected(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     feature = callback.data.split("_")[1]
     value = feature_values[feature][int(callback.data.split("_")[2])]
-    print(f'User selected {value} in {feature}')
+    logging.info(f'User selected {value} in {feature}')
     users_states[user_id]['features'][feature] = value
     await callback.answer(f'Значение {value} выбрано!')
     await show_features_keyboard(user_id, callback.message)
@@ -203,7 +202,7 @@ async def cmd_predict(message: types.Message):
 async def plant_text(message: types.Message):
     user_id = message.from_user.id
     state = get_user_state(message.from_user.id)
-    print(f'state = {state}')
+    logging.info(f'state = {state}')
     if state == JUST_STARTED:
         await print_help(message)
     elif state == GENERAL_FEATURE_SELECTION:
@@ -212,7 +211,7 @@ async def plant_text(message: types.Message):
         if not message.text.isdigit():
             message.reply('Введён некорректный возраст.\nПопробуйте заново.')
         else:
-            print('age entered!')
+            logging.info('age entered!')
             users_states[user_id]['features']['age'] = int(message.text)
             await message.answer('Возраст введён!')
             await message.answer("Выберите признак, чтобы заполнить остальные:",

@@ -33,7 +33,8 @@ dp = Dispatcher()
 JUST_STARTED = 0
 GENERAL_FEATURE_SELECTION = 1
 WAITING_AGE = 2
-WAITING_GENDER = 3
+#WAITING_GENDER = 3
+WAITING_FOR_RATING = 4
 
 users_states = dict()
 
@@ -73,12 +74,13 @@ def init_user(user_id):
 
 def set_user_state(user_id, state):
     logging.info(f'Setting {state} for {user_id}')
-    if user_id in users_states:
-        users_states[user_id]['state'] = state
-    else:
-        users_states[user_id] = {'state': state}
+    if user_id not in users_states:
+        init_user(user_id)
+    users_states[user_id]['state'] = state
 
 def get_user_state(user_id):
+    if user_id not in users_states:
+        init_user(user_id)
     return users_states[user_id].get('state', None)
 
 ### Кнопки
@@ -97,9 +99,11 @@ def gen_keyboard_markup(keyboard, hint='Выбери значение'):
     )
 
 def gen_feature_string(user_id, feature_key):
+    _ = get_user_state(user_id)
     return ('✅ ' if users_states[user_id]['features'][feature_key] is not None else '') + features_map.get(feature_key, 'unknown')
 
 def gen_features_keyboard(user_id):
+    _ = get_user_state(user_id)
     buttons = []
     ROW_SIZE = 2
     for r in range(0, len(features), ROW_SIZE):
@@ -147,6 +151,7 @@ async def callbacks_select(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("selected__"))
 async def callbacks_selected(callback: types.CallbackQuery):
     user_id = callback.from_user.id
+    _ = get_user_state(user_id)
     feature = callback.data.split("__")[1]
     value = feature_values[feature][int(callback.data.split("__")[2])]
     logging.info(f'User selected {value} in {feature}')
@@ -163,13 +168,19 @@ async def callbacks_back(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "predict")
 async def callbacks_back(callback: types.CallbackQuery):
     user_id = callback.from_user.id
+    users_states[user_id]['features']['GENDER'] = 1 if users_states[user_id]['features']['GENDER'] == 'Мужской' else 0
     user_input_df = pd.DataFrame(users_states[user_id]['features'], index=[0])
+    #print(user_input_df)
+    #print()
 
     full_X_df = pd.concat((user_input_df, train_X_df), axis=0)
     preprocessed_X_df = preprocess_data(full_X_df, target=False)
+    #print(preprocessed_X_df)
+    #print()
 
     user_X_df = preprocessed_X_df[:1]
 
+    #print(user_X_df)
     prediction, prediction_probas = predict(model, user_X_df)
     await callback.message.answer(f'{prediction}\n{prediction_probas}')
     await callback.answer()
@@ -212,31 +223,13 @@ async def cmd_predict(message: types.Message):
     user_id = message.from_user.id
     await message.answer("Выберите признак, чтобы заполнить:",
                          reply_markup=gen_features_keyboard(user_id))
-    set_user_state(user_id, WAITING_GENDER)
-
-@dp.message()
-async def plant_text(message: types.Message):
-    user_id = message.from_user.id
-    state = get_user_state(message.from_user.id)
-    logging.info(f'state = {state}')
-    if state == JUST_STARTED:
-        await print_help(message)
-    elif state == GENERAL_FEATURE_SELECTION:
-        message.answer('Выбери признак в таблице выше!')
-    elif state == 'WAITING_FOR_AGE':
-        if not message.text.isdigit():
-            await message.reply('Введён некорректный возраст.\nПопробуйте заново.')
-        else:
-            logging.info('age entered!')
-            users_states[user_id]['features']['AGE'] = int(message.text)
-            await message.answer('Возраст введён!')
-            await message.answer("Выберите признак, чтобы заполнить остальные:",
-                     reply_markup=gen_features_keyboard(user_id))
+    set_user_state(user_id, GENERAL_FEATURE_SELECTION)
 
 stat = [0, 0, 0, 0, 1]
 @dp.message(Command("rate"))
 async def cmd_rate(message: types.Message):
     await message.answer("Оцени бота от 1 до 5.")
+    set_user_state(message.from_user.id, WAITING_FOR_RATING)
 
 @dp.message(Command("statistic"))
 async def cmd_statistic(message: types.Message):
@@ -248,6 +241,34 @@ async def cmd_statistic(message: types.Message):
 ⭐: {stat[0]}\n\
 Самая частая оценка: {'⭐' * (stat.index(max(stat)) + 1)}\n\
 Средняя оценка: {(stat[0]*1 + stat[1]*2 + stat[2]*3 + stat[3]*4 + stat[4]*5) / sum(stat):.2f}")
+
+@dp.message()
+async def plant_text(message: types.Message):
+    user_id = message.from_user.id
+    state = get_user_state(user_id)
+    logging.info(f'state = {state}')
+    if state == JUST_STARTED:
+        await print_help(message)
+    elif state == GENERAL_FEATURE_SELECTION:
+        message.answer('Выбери признак в таблице выше!')
+    elif state == WAITING_FOR_RATING:
+        if not message.text.isdigit() or int(message.text) > 5:
+            await message.reply('Введена некорректная оценка.\nПопробуйте заново.')
+        else:
+            stat[int(message.text) - 1] += 1
+            set_user_state(user_id, GENERAL_FEATURE_SELECTION)
+            await message.answer('Ваша оценка учтена!')
+    elif state == 'WAITING_FOR_AGE':
+        if not message.text.isdigit():
+            await message.reply('Введён некорректный возраст.\nПопробуйте заново.')
+        else:
+            logging.info('age entered!')
+            users_states[user_id]['features']['AGE'] = int(message.text)
+            await message.answer('Возраст введён!')
+            await message.answer("Выберите признак, чтобы заполнить остальные:",
+                     reply_markup=gen_features_keyboard(user_id))
+            set_user_state(user_id, GENERAL_FEATURE_SELECTION)
+
 
 # Запуск процесса поллинга новых апдейтов
 async def main():

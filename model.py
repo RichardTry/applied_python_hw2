@@ -2,6 +2,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 from pickle import dump, load
 import pandas as pd
+import numpy as np
 
 def load_data():
     data = dict()
@@ -52,7 +53,6 @@ def open_data():
     return join_data(load_data())
 
 def preprocess_data(df: pd.DataFrame, target=False):
-    df.dropna(inplace=True)
 
     if target:
         X_df, y_df = split_data(df)
@@ -61,12 +61,18 @@ def preprocess_data(df: pd.DataFrame, target=False):
     
     features_whitelist = ['AGE', 'GENDER', 'MARITAL_STATUS', 'EDUCATION']
     X_df = X_df.loc[:, features_whitelist]
+    #print('before encode', X_df.columns)
 
     to_encode = ['EDUCATION', 'MARITAL_STATUS', 'GENDER']
     for col in to_encode:
         dummy = pd.get_dummies(X_df[col], prefix=col)
         X_df = pd.concat([X_df, dummy], axis=1)
+        #print('after concat', X_df.columns)
         X_df.drop(col, axis=1, inplace=True)
+        #print('after drop', X_df.columns)
+
+    X_df.dropna(inplace=True)
+    #print(X_df.head(1))
 
     if target:
         return X_df, y_df
@@ -101,10 +107,14 @@ def load_model(path="data/model_weights.mw"):
 
 def predict(model, df):
     prediction = model.predict(df)[0]
-    # prediction = np.squeeze(prediction)
+    #print('not squized', prediction)
+    #prediction = np.squeeze(prediction)
+    #print('squized', prediction)
 
-    prediction_proba = model.predict_proba(df)[0]
-    # prediction_proba = np.squeeze(prediction_proba)
+    prediction_proba = model.predict_proba(df)
+    #print('======= not squized proba', prediction_proba)
+    prediction_proba = np.squeeze(prediction_proba)
+    #print('======= squized proba', prediction_proba)
 
     # encode_prediction_proba = {
     #     0: "Вам не понравится наше предложение с вероятностью",
